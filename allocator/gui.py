@@ -24,11 +24,11 @@ class GUI_RESULTS_settings:
     WINDOW_GEOMETRY: str = "600x600"
     FONT_FAMILY: str = "Arial"
     FONT_SIZE: int = 14
-    HEADER_COLOR: str = "#3a7ca5"  # Blue header
-    CONTAINER_BG: str = "#f5f5f5"  # Light gray background
+    HEADER_COLOR: str = "#3a7ca5"      # Blue header
+    CONTAINER_BG: str = "#f5f5f5"      # Light gray background
     CONTAINER_BORDER: str = "#dcdcdc"  # Border color
-    BLOCKS_BG: str = "#ffffff"  # White background for blocks text
-    WEIGHT_COLOR: str = "#2c666e"  # Teal for weight information
+    BLOCKS_BG: str = "#ffffff"         # White background for blocks text
+    WEIGHT_COLOR: str = "#2c666e"      # Teal for weight information
     BACKGROUND_COLOR: str = "#f5f0e1"  # Light brown/cream background matching selection window
 
 
