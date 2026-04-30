@@ -13,7 +13,7 @@ Custom program to optimise allocation of blocks into containers by maximal weigh
 0. Once you provide the csv file, run the allocation!
 
 ### Development
-executable build command:
+Windows executable build command:
 ```
 pyinstaller --onefile --windowed --name BlockAllocator main.py
 ```
