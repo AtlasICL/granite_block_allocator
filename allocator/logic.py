@@ -1,4 +1,4 @@
-from typing import List, Tuple, Dict, Union
+from typing import List, Tuple, Dict, Union, Optional
 import numpy as np
 import pandas as pd
 import time
@@ -35,7 +35,7 @@ def load_blocks(path: str) -> List[dBlock]:
         raise ValueError(f"Error loading CSV file: {str(e)}")
 
 
-def find_best_subset_dp(blocks: List[dBlock], capacity: float, max_blocks: int = None) -> Tuple[List[dBlock], float]:
+def find_best_subset_dp(blocks: List[dBlock], capacity: float, max_blocks: Optional[int] = None) -> Tuple[List[dBlock], float]:
     """Find the optimal subset of blocks via 0/1 knapsack DP (numpy-backed).
 
     Maximises total weight subject to capacity, optionally constrained to at
@@ -79,6 +79,7 @@ def find_best_subset_dp(blocks: List[dBlock], capacity: float, max_blocks: int =
     else:
         # Add a block-count dimension. dp[k, j] = best scaled weight using at
         # most k blocks at capacity j.
+        assert max_blocks is not None
         K = max_blocks + 1
         dp = np.zeros((K, cap_scaled + 1), dtype=np.int64)
         chosen = np.zeros((n + 1, K, cap_scaled + 1), dtype=bool)
@@ -112,7 +113,7 @@ def find_best_subset_dp(blocks: List[dBlock], capacity: float, max_blocks: int =
     return result, total_weight
 
 
-def find_best_subset_greedy(blocks: List[dBlock], capacity: float, max_blocks: int = None) -> Tuple[List[dBlock], float]:
+def find_best_subset_greedy(blocks: List[dBlock], capacity: float, max_blocks: Optional[int] = None) -> Tuple[List[dBlock], float]:
     """Find a good subset of blocks using a greedy approach.
     This is more efficient but may not find the optimal solution."""
     # Sort blocks by weight/mass ratio in descending order for better greedy results
@@ -133,7 +134,7 @@ def find_best_subset_greedy(blocks: List[dBlock], capacity: float, max_blocks: i
     return selected_blocks, total_weight
 
 
-def find_best_subset(blocks: List[dBlock], capacity: float, max_blocks: int = None) -> Tuple[List[dBlock], float]:
+def find_best_subset(blocks: List[dBlock], capacity: float, max_blocks: Optional[int] = None) -> Tuple[List[dBlock], float]:
     """Find the best subset of blocks that fits within capacity and max_blocks constraint.
     Uses optimal DP when feasible, falling back to greedy on very large inputs."""
     if not blocks or capacity <= 0:
@@ -150,7 +151,7 @@ def find_best_subset(blocks: List[dBlock], capacity: float, max_blocks: int = No
     return find_best_subset_greedy(blocks, capacity, max_blocks)
 
 
-def assign_containers(blocks: List[dBlock], capacity: float, count: int, max_blocks: int = None) -> ContainerMap:
+def assign_containers(blocks: List[dBlock], capacity: float, count: int, max_blocks: Optional[int] = None) -> ContainerMap:
     """Pack blocks into `count` containers with optional max blocks per container limit."""
     # Input validation
     if capacity <= 0:
