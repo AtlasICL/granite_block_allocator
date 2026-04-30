@@ -1,10 +1,15 @@
 from typing import List, Tuple, Dict, Union
+import numpy as np
 import pandas as pd
 import time
 
 # Type alias for clarity
 dBlock = Tuple[int, float]
 ContainerMap = Dict[int, Dict[str, Union[List[int], float]]]
+
+# Cap DP work so we fall back to greedy on pathologically large inputs.
+# Tuned to keep numpy DP under ~1s on a typical machine.
+_DP_WORK_LIMIT = 50_000_000
 
 
 def load_blocks(path: str) -> List[dBlock]:
@@ -31,72 +36,78 @@ def load_blocks(path: str) -> List[dBlock]:
 
 
 def find_best_subset_dp(blocks: List[dBlock], capacity: float, max_blocks: int = None) -> Tuple[List[dBlock], float]:
-    """Find the best subset of blocks using dynamic programming.
-    More efficient than recursion while still finding optimal solution."""
+    """Find the optimal subset of blocks via 0/1 knapsack DP (numpy-backed).
+
+    Maximises total weight subject to capacity, optionally constrained to at
+    most `max_blocks` blocks. Weights are scaled by 100 to work in integers."""
     n = len(blocks)
-    
-    # Handle edge cases
     if n == 0 or capacity <= 0:
         return [], 0.0
-    
-    # If max_blocks is None or greater than total blocks, use full capacity
-    max_blocks_to_use = min(n, max_blocks) if max_blocks is not None else n
-    
-    # Create arrays for our dynamic programming approach
-    # dp[i][j][k] = best weight for first i blocks, capacity j, using k blocks
-    dp = {}
-    chosen = {}
-    
-    # Initialize
-    for i in range(n+1):
-        dp[i] = {}
-        chosen[i] = {}
-        for j in range(int(capacity*100) + 1):  # Scale to handle floating point
-            dp[i][j] = {}
-            chosen[i][j] = {}
-            for k in range(max_blocks_to_use + 1):
-                dp[i][j][k] = 0.0
-                chosen[i][j][k] = False
-    
-    # Fill the dp table
-    for i in range(1, n+1):
-        block_no, weight = blocks[i-1]
-        weight_scaled = int(weight * 100)  # Scale to handle floating point
-        
-        for j in range(int(capacity*100) + 1):
-            for k in range(1, max_blocks_to_use + 1):
-                # Don't include this block
-                dp[i][j][k] = dp[i-1][j][k]
-                
-                # Include this block if it fits
-                if j >= weight_scaled:
-                    with_block = dp[i-1][j-weight_scaled][k-1] + weight
-                    if with_block > dp[i][j][k]:
-                        dp[i][j][k] = with_block
-                        chosen[i][j][k] = True
-    
-    # Reconstruct the solution
-    result = []
-    j = int(capacity * 100)
-    k = max_blocks_to_use
-    
-    # Find the best k (number of blocks to use)
-    best_k = 0
-    best_value = 0.0
-    for potential_k in range(max_blocks_to_use + 1):
-        if dp[n][j][potential_k] > best_value:
-            best_value = dp[n][j][potential_k]
-            best_k = potential_k
-    
-    k = best_k
-    
-    for i in range(n, 0, -1):
-        if chosen[i][j][k]:
-            block_no, weight = blocks[i-1]
-            result.append(blocks[i-1])
-            j -= int(weight * 100)
-            k -= 1
-    
+    if max_blocks is not None and max_blocks <= 0:
+        return [], 0.0
+
+    cap_scaled = int(round(capacity * 100))
+    if cap_scaled <= 0:
+        return [], 0.0
+    weights_scaled = np.array(
+        [int(round(b[1] * 100)) for b in blocks], dtype=np.int64
+    )
+
+    use_count_dim = max_blocks is not None and max_blocks < n
+
+    if not use_count_dim:
+        # Standard 0/1 knapsack. dp[j] = best scaled weight at capacity j.
+        dp = np.zeros(cap_scaled + 1, dtype=np.int64)
+        chosen = np.zeros((n + 1, cap_scaled + 1), dtype=bool)
+
+        for i in range(1, n + 1):
+            ws = int(weights_scaled[i - 1])
+            if ws > cap_scaled:
+                continue
+            candidate = np.full(cap_scaled + 1, -1, dtype=np.int64)
+            candidate[ws:] = dp[: cap_scaled + 1 - ws] + ws
+            take = candidate > dp
+            chosen[i] = take
+            dp = np.where(take, candidate, dp)
+
+        result = []
+        j = cap_scaled
+        for i in range(n, 0, -1):
+            if chosen[i, j]:
+                result.append(blocks[i - 1])
+                j -= int(weights_scaled[i - 1])
+    else:
+        # Add a block-count dimension. dp[k, j] = best scaled weight using at
+        # most k blocks at capacity j.
+        K = max_blocks + 1
+        dp = np.zeros((K, cap_scaled + 1), dtype=np.int64)
+        chosen = np.zeros((n + 1, K, cap_scaled + 1), dtype=bool)
+
+        for i in range(1, n + 1):
+            ws = int(weights_scaled[i - 1])
+            if ws > cap_scaled:
+                continue
+            new_dp = dp.copy()
+            for k in range(1, K):
+                candidate = np.full(cap_scaled + 1, -1, dtype=np.int64)
+                candidate[ws:] = dp[k - 1, : cap_scaled + 1 - ws] + ws
+                take = candidate > new_dp[k]
+                chosen[i, k] = take
+                new_dp[k] = np.where(take, candidate, new_dp[k])
+            dp = new_dp
+
+        # Best k is the one that achieves the highest total at full capacity.
+        best_k = int(np.argmax(dp[:, cap_scaled]))
+
+        result = []
+        j = cap_scaled
+        k = best_k
+        for i in range(n, 0, -1):
+            if k > 0 and chosen[i, k, j]:
+                result.append(blocks[i - 1])
+                j -= int(weights_scaled[i - 1])
+                k -= 1
+
     total_weight = sum(block[1] for block in result)
     return result, total_weight
 
@@ -124,27 +135,18 @@ def find_best_subset_greedy(blocks: List[dBlock], capacity: float, max_blocks: i
 
 def find_best_subset(blocks: List[dBlock], capacity: float, max_blocks: int = None) -> Tuple[List[dBlock], float]:
     """Find the best subset of blocks that fits within capacity and max_blocks constraint.
-    Selects the appropriate algorithm based on input size and constraints."""
-    # Handle edge cases
+    Uses optimal DP when feasible, falling back to greedy on very large inputs."""
     if not blocks or capacity <= 0:
         return [], 0.0
-    
-    # Set max_blocks to total blocks if not specified
-    if max_blocks is None:
-        max_blocks = len(blocks)
-    
-    # For small datasets, use dynamic programming for optimal solution
-    if len(blocks) <= 20:
-        start_time = time.time()
-        result = find_best_subset_dp(blocks, capacity, max_blocks)
-        elapsed = time.time() - start_time
-        
-        # If DP takes too long, fallback to greedy
-        if elapsed > 1.0:  # More than 1 second
-            return find_best_subset_greedy(blocks, capacity, max_blocks)
-        return result
-    
-    # For larger datasets, use greedy approach
+
+    n = len(blocks)
+    cap_scaled = int(round(capacity * 100))
+    count_dim = (max_blocks + 1) if (max_blocks is not None and max_blocks < n) else 1
+    work = n * (cap_scaled + 1) * count_dim
+
+    if work <= _DP_WORK_LIMIT:
+        return find_best_subset_dp(blocks, capacity, max_blocks)
+
     return find_best_subset_greedy(blocks, capacity, max_blocks)
 
 
