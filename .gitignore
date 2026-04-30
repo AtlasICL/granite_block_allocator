@@ -4,4 +4,4 @@ build/
 dist/
 *.spec
 
-allocator/__pycache__
+__pycache__
