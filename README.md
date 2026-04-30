@@ -20,5 +20,5 @@ pyinstaller --onefile --windowed --name BlockAllocator main.py
 
 Testing command:
 ```
-python -m unittest discover -s test -v.
+python -m unittest discover -s test -v
 ```
