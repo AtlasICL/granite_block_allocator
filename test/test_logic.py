@@ -1,6 +1,7 @@
 import sys
 import unittest
 from pathlib import Path
+from typing import List, cast
 from unittest import mock
 
 # Make the project root importable when running `python -m unittest discover -s test`.
@@ -20,6 +21,14 @@ from allocator.logic import (
 _RESOURCES = Path(__file__).resolve().parent / "resources"
 
 
+def _blocks_of(info) -> List[int]:
+    return cast(List[int], info["blocks"])
+
+
+def _weight_of(info) -> float:
+    return cast(float, info["total_weight"])
+
+
 def _assert_assignment_valid(test_case, blocks, capacity, count, max_blocks, assignments):
     """Shared invariants every valid ContainerMap must satisfy."""
     weight_by_blockno = {int(b[0]): float(b[1]) for b in blocks}
@@ -35,8 +44,8 @@ def _assert_assignment_valid(test_case, blocks, capacity, count, max_blocks, ass
         test_case.assertIn("blocks", info)
         test_case.assertIn("total_weight", info)
 
-        block_ids = info["blocks"]
-        total = info["total_weight"]
+        block_ids = _blocks_of(info)
+        total = _weight_of(info)
 
         test_case.assertIsInstance(block_ids, list)
         test_case.assertLessEqual(total, capacity + 1e-9)
@@ -316,7 +325,7 @@ class TestAssignContainers(unittest.TestCase):
             self.assertIsInstance(cid, int)
             self.assertIn("blocks", info)
             self.assertIn("total_weight", info)
-            self.assertIsInstance(info["blocks"], list)
+            self.assertIsInstance(_blocks_of(info), list)
 
     def test_container_ids_are_one_indexed(self):
         blocks = [(1, 5.0), (2, 3.0), (3, 8.0), (4, 2.0)]
@@ -329,7 +338,7 @@ class TestAssignContainers(unittest.TestCase):
         result = assign_containers(blocks, 10.0, 5)
         all_ids = []
         for info in result.values():
-            all_ids.extend(int(b) for b in info["blocks"])
+            all_ids.extend(int(b) for b in _blocks_of(info))
         self.assertEqual(len(all_ids), len(set(all_ids)))
 
     def test_each_container_respects_capacity(self):
@@ -337,21 +346,21 @@ class TestAssignContainers(unittest.TestCase):
         capacity = 10.0
         result = assign_containers(blocks, capacity, 5)
         for info in result.values():
-            self.assertLessEqual(info["total_weight"], capacity + 1e-9)
+            self.assertLessEqual(_weight_of(info), capacity + 1e-9)
 
     def test_each_container_respects_max_blocks(self):
         blocks = [(i, 1.0) for i in range(1, 21)]
         result = assign_containers(blocks, 100.0, 5, max_blocks=3)
         for info in result.values():
-            self.assertLessEqual(len(info["blocks"]), 3)
+            self.assertLessEqual(len(_blocks_of(info)), 3)
 
     def test_total_weights_match_block_sum(self):
         blocks = [(1, 5.0), (2, 3.0), (3, 8.0), (4, 2.5), (5, 4.5)]
         weight_by_id = {b[0]: b[1] for b in blocks}
         result = assign_containers(blocks, 10.0, 3)
         for info in result.values():
-            expected = sum(weight_by_id[int(bid)] for bid in info["blocks"])
-            self.assertAlmostEqual(info["total_weight"], expected, places=6)
+            expected = sum(weight_by_id[int(bid)] for bid in _blocks_of(info))
+            self.assertAlmostEqual(_weight_of(info), expected, places=6)
 
     def test_stops_early_when_blocks_exhausted(self):
         # Two blocks, neither fits with the other → at most 2 containers used.
@@ -359,7 +368,7 @@ class TestAssignContainers(unittest.TestCase):
         result = assign_containers(blocks, 10.0, 5)
         self.assertLessEqual(len(result), 2)
         # Every input block should still be allocated.
-        all_ids = {int(b) for info in result.values() for b in info["blocks"]}
+        all_ids = {int(b) for info in result.values() for b in _blocks_of(info)}
         self.assertEqual(all_ids, {1, 2})
 
     def test_only_assigned_blocknos_appear(self):
@@ -367,17 +376,17 @@ class TestAssignContainers(unittest.TestCase):
         valid_ids = {b[0] for b in blocks}
         result = assign_containers(blocks, 10.0, 2)
         for info in result.values():
-            for bid in info["blocks"]:
+            for bid in _blocks_of(info):
                 self.assertIn(int(bid), valid_ids)
 
     def test_max_blocks_constraint_enforced_across_all_containers(self):
         blocks = [(i, 1.0) for i in range(1, 16)]
         result = assign_containers(blocks, 100.0, 5, max_blocks=2)
         for info in result.values():
-            self.assertLessEqual(len(info["blocks"]), 2)
+            self.assertLessEqual(len(_blocks_of(info)), 2)
         all_ids = []
         for info in result.values():
-            all_ids.extend(int(b) for b in info["blocks"])
+            all_ids.extend(int(b) for b in _blocks_of(info))
         self.assertEqual(len(all_ids), len(set(all_ids)))
 
     def test_does_not_mutate_input_list(self):
@@ -390,8 +399,8 @@ class TestAssignContainers(unittest.TestCase):
         blocks = [(1, 6.0), (2, 5.0), (3, 5.0)]
         result = assign_containers(blocks, 10.0, 1)
         self.assertEqual(set(result.keys()), {1})
-        self.assertAlmostEqual(result[1]["total_weight"], 10.0)
-        self.assertEqual(sorted(int(b) for b in result[1]["blocks"]), [2, 3])
+        self.assertAlmostEqual(_weight_of(result[1]), 10.0)
+        self.assertEqual(sorted(int(b) for b in _blocks_of(result[1])), [2, 3])
 
 
 class TestExampleCsvFiles(unittest.TestCase):
@@ -435,7 +444,7 @@ class TestExampleCsvFiles(unittest.TestCase):
         result = assign_containers(blocks, 10.0, 1)
         self.assertEqual(set(result.keys()), {1})
         # DP path on this tiny input must achieve the optimum (10.0).
-        self.assertAlmostEqual(result[1]["total_weight"], 10.0)
+        self.assertAlmostEqual(_weight_of(result[1]), 10.0)
 
     def test_all_fit_csv_uses_one_container(self):
         blocks = load_blocks(str(_RESOURCES / "all_fit.csv"))
@@ -443,8 +452,8 @@ class TestExampleCsvFiles(unittest.TestCase):
         result = assign_containers(blocks, capacity, 3)
         # All blocks fit in one container; later containers should be unused.
         self.assertIn(1, result)
-        self.assertEqual(len(result[1]["blocks"]), 4)
-        self.assertAlmostEqual(result[1]["total_weight"], 7.0)
+        self.assertEqual(len(_blocks_of(result[1])), 4)
+        self.assertAlmostEqual(_weight_of(result[1]), 7.0)
 
 
 if __name__ == "__main__":
