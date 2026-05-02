@@ -2,7 +2,7 @@ import tkinter as tk
 from tkinter import filedialog, messagebox
 import tkinter.font as tkfont
 from tkinter import ttk
-from typing import Optional
+from typing import List, Optional, cast
 from allocator.logic import load_blocks, assign_containers
 import os
 
@@ -164,10 +164,10 @@ class BlockAllocatorGUI(tk.Tk):
             # Set initial position at top
             canvas.yview_moveto(0)
             # Configure scrollregion to prevent scrolling above the top
-            region = list(canvas.bbox("all"))
-            if region:
-                region[1] = 0  # Set top of scrollregion to 0
-                canvas.configure(scrollregion=region)
+            bbox = canvas.bbox("all")
+            if bbox:
+                # Set top of scrollregion to 0 to prevent scrolling above the top
+                canvas.configure(scrollregion=(bbox[0], 0, bbox[2], bbox[3]))
         
         # Call after all widgets are created and sized
         self.after(100, _prevent_scroll_above_top)
@@ -278,9 +278,8 @@ class BlockAllocatorGUI(tk.Tk):
             
         for idx, (cid, info) in enumerate(assignments.items()):
             row, col = divmod(idx, cols)
-            blocks_list = info['blocks']
-            
-            total_wt = info['total_weight']
+            blocks_list = cast(List[int], info['blocks'])
+            total_wt = cast(float, info['total_weight'])
             
             # Create a frame for this container with improved styling
             container_frame = ttk.Frame(result_frame, relief=tk.RIDGE, padding=10)
