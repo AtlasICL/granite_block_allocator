@@ -1,5 +1,7 @@
-## Container block allocation program
-Author: Emre Acarsoy
+![Version](https://img.shields.io/badge/version-1.0.1-blue)
+![License](https://img.shields.io/badge/license-MIT-green)
+![Tests](https://github.com/AtlasICL/whatdidi/actions/workflows/test.yml/badge.svg)
+# Container block allocation program
 
 ### Overview
 Custom program to optimise allocation of blocks into containers by maximal weight capacity.  
