@@ -7,8 +7,7 @@ import time
 dBlock = Tuple[int, float]
 ContainerMap = Dict[int, Dict[str, Union[List[int], float]]]
 
-# Cap DP work so we fall back to greedy on pathologically large inputs.
-# Tuned to keep numpy DP under ~1s on a typical machine.
+# Cap DP work so we fall back to greedy on very large inputs.
 _DP_WORK_LIMIT = 50_000_000
 
 
