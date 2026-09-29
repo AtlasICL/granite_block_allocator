@@ -3,8 +3,9 @@
 ![Tests](https://github.com/AtlasICL/whatdidi/actions/workflows/test.yml/badge.svg)
 # Container block allocation program
 
-### Overview
+## Overview
 Custom program to optimise allocation of blocks into containers by maximal weight capacity.  
+Currently in use by the client.
 
 ### Usage instructions
 0. Download the executable from the latest release. 
@@ -14,13 +15,12 @@ Custom program to optimise allocation of blocks into containers by maximal weigh
    - 1 column with the header `Weight` 
 0. Once you provide the csv file, run the allocation!
 
-### Development
-Windows executable build command:
+### Executable creation instructions
 ```
 pyinstaller --onefile --windowed --name BlockAllocator main.py
 ```
 
-Testing command:
+### Tests
 ```
 python -m unittest discover -s test -v
 ```
