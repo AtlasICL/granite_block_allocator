@@ -42,8 +42,8 @@ It is a small Tkinter app distributed as a single Windows executable. The alloca
   <a href="#preparing-the-block-list">Block list format</a> ·
   <a href="#how-the-allocation-works">How it works</a> ·
   <a href="#running-from-source">Running from source</a> ·
-  <a href="#building-and-releasing">Releasing</a> ·
   <a href="#development">Development</a> ·
+  <a href="#releasing">Releasing</a> ·
   <a href="#project-structure">Structure</a>
 </p>
 
@@ -178,47 +178,15 @@ Requires **Python 3.12 or newer** with Tkinter. Tkinter comes with the standard 
 ```bash
 git clone https://github.com/AtlasICL/granite_block_allocator.git
 cd granite_block_allocator
-python -m venv venv
-source venv/bin/activate        # Windows: venv\Scripts\activate
-pip install -r requirements.txt
-python main.py
+just setup
+just run
 ```
 
-Dependencies are pinned to exact versions in `requirements.txt` (runtime) and `requirements-dev.txt` (build and tooling), so a build made today behaves the same as one made next year.
-
-## Building and releasing
-
-### Automated releases
-
-Releases are built by GitHub Actions ([`release.yml`](.github/workflows/release.yml)):
-
-1. Update `__version__` in [`allocator/__init__.py`](allocator/__init__.py), for example to `0.3.0`, and commit.
-2. Tag the commit and push the tag:
-   ```bash
-   git tag v0.3.0
-   git push origin v0.3.0
-   ```
-3. The workflow checks that the tag matches `__version__`, runs the tests, builds `GraniteBlockAllocator.exe` on Windows and attaches it to a GitHub release with generated release notes.
-
-### Building locally
-
-```bash
-pip install -r requirements-dev.txt
-pyinstaller --onefile --windowed --name GraniteBlockAllocator --icon assets/icon.ico --add-data "assets/icon.png:assets" main.py
-```
-
-The executable is written to `dist/`. PyInstaller builds for the operating system it runs on, so build on Windows to get a Windows `.exe`.
+`just setup` creates `./venv` and installs the dependencies, which are pinned to exact versions in `requirements.txt` (runtime) and `requirements-dev.txt` (build and tooling).
 
 ## Development
 
-```bash
-pip install -r requirements-dev.txt
-
-python -m unittest discover -s test -v   # tests
-ruff check .                             # lint
-ruff format .                            # format
-mypy                                     # type-check
-```
+To run the tests, run `just test`. Extra arguments are passed to `unittest`, so `just test -k Balancing` runs only the matching tests. To lint, run `just lint`; to format, `just fmt`; and to type-check, `just typecheck`. `just check` runs all of them, the same as CI. Run `just` on its own to list everything else in the [`justfile`](justfile).
 
 CI ([`test.yml`](.github/workflows/test.yml)) runs the tests on Ubuntu and Windows, plus the lint, format and type checks, for every push and pull request to `master`.
 
@@ -230,6 +198,12 @@ CI ([`test.yml`](.github/workflows/test.yml)) runs the tests on Ubuntu and Windo
 | [`test_settings.py`](test/test_settings.py) | 9 | Parsing what's typed into the form, saving and loading settings, corrupt or missing settings files, settings location on each OS |
 
 Sample block lists, including edge cases such as empty files, missing columns, blank values and real-world export formats, are in [`test/resources/`](test/resources/).
+
+## Releasing
+
+To release, set the version with `just bump 0.3.0`, commit it, then run `just release 0.3.0`. This tags `v0.3.0` and pushes the tag, after asking for confirmation and checking that the version matches and nothing is uncommitted. The [release workflow](.github/workflows/release.yml) then runs the tests, builds `GraniteBlockAllocator.exe` on Windows and attaches it to a GitHub release.
+
+To build the executable yourself, run `just compile`. PyInstaller builds for the operating system it runs on, so run it on Windows to get the `.exe`.
 
 ## Project structure
 
@@ -251,6 +225,7 @@ granite_block_allocator/
 ├── requirements.txt        # Pinned runtime dependencies
 ├── requirements-dev.txt    # Pinned build and tooling dependencies
 ├── pyproject.toml          # ruff and mypy configuration
+├── justfile                # Common commands (just test, just lint, …)
 └── .github/workflows/
     ├── test.yml            # Tests, lint and type-check on every push
     └── release.yml         # Builds and publishes the .exe for version tags
