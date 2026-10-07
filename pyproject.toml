@@ -1,0 +1,24 @@
+# Tool configuration only. The app is run from source with `python main.py`
+# or built into an executable with PyInstaller (see README).
+
+[tool.ruff]
+line-length = 110
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP"]
+
+[tool.mypy]
+python_version = "3.12"
+files = ["allocator", "main.py"]
+warn_unused_ignores = true
+warn_redundant_casts = true
+check_untyped_defs = true
+
+[[tool.mypy.overrides]]
+module = ["openpyxl", "openpyxl.*"]
+ignore_missing_imports = true
+
+[tool.ruff.lint.per-file-ignores]
+# Tests put the project root on sys.path before importing it.
+"test/*" = ["E402"]

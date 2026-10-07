@@ -1,7 +1,7 @@
 import sys
 import unittest
 from pathlib import Path
-from typing import List, cast
+from typing import cast
 from unittest import mock
 
 # Make the project root importable when running `python -m unittest discover -s test`.
@@ -10,19 +10,22 @@ if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
 from allocator import logic
+from allocator.blockfile import load_blocks
 from allocator.logic import (
+    AllocationResult,
+    allocate,
     assign_containers,
+    balance_containers,
     find_best_subset,
     find_best_subset_dp,
     find_best_subset_greedy,
-    load_blocks,
 )
 
 _RESOURCES = Path(__file__).resolve().parent / "resources"
 
 
-def _blocks_of(info) -> List[int]:
-    return cast(List[int], info["blocks"])
+def _blocks_of(info) -> list[int]:
+    return cast(list[int], info["blocks"])
 
 
 def _weight_of(info) -> float:
@@ -67,57 +70,6 @@ def _assert_assignment_valid(test_case, blocks, capacity, count, max_blocks, ass
         len(set(seen_blocknos)),
         "A block was assigned to more than one container",
     )
-
-
-class TestLoadBlocks(unittest.TestCase):
-    def test_loads_basic_csv(self):
-        blocks = load_blocks(str(_RESOURCES / "example_blocks_2.csv"))
-        self.assertEqual(len(blocks), 16)
-        for b in blocks:
-            self.assertIsInstance(b, tuple)
-            self.assertEqual(len(b), 2)
-
-    def test_ignores_extra_columns(self):
-        blocks = load_blocks(str(_RESOURCES / "example_blocks.csv"))
-        self.assertEqual(len(blocks), 100)
-        for b in blocks:
-            self.assertEqual(len(b), 2)
-
-    def test_loads_csv_with_lots_of_extra_columns(self):
-        blocks = load_blocks(str(_RESOURCES / "example_blocks_3.csv"))
-        self.assertEqual(len(blocks), 56)
-        for b in blocks:
-            self.assertEqual(len(b), 2)
-
-    def test_returns_correct_types(self):
-        blocks = load_blocks(str(_RESOURCES / "tiny_dp_beats_greedy.csv"))
-        self.assertEqual(len(blocks), 3)
-        for b in blocks:
-            self.assertIsInstance(b, tuple)
-            int(b[0])
-            self.assertIsInstance(float(b[1]), float)
-
-    def test_loads_known_values(self):
-        blocks = load_blocks(str(_RESOURCES / "tiny_dp_beats_greedy.csv"))
-        weights = sorted(float(b[1]) for b in blocks)
-        self.assertEqual(weights, [5.0, 5.0, 6.0])
-
-    def test_missing_required_column_raises(self):
-        with self.assertRaises(ValueError) as cm:
-            load_blocks(str(_RESOURCES / "missing_weight_column.csv"))
-        self.assertIn("Weight", str(cm.exception))
-
-    def test_nan_weight_raises(self):
-        with self.assertRaises(ValueError):
-            load_blocks(str(_RESOURCES / "nan_values.csv"))
-
-    def test_missing_file_raises(self):
-        with self.assertRaises(ValueError):
-            load_blocks(str(_RESOURCES / "this_file_does_not_exist.csv"))
-
-    def test_empty_csv_returns_empty_list(self):
-        blocks = load_blocks(str(_RESOURCES / "empty_blocks.csv"))
-        self.assertEqual(blocks, [])
 
 
 class TestFindBestSubsetDp(unittest.TestCase):
@@ -454,6 +406,140 @@ class TestExampleCsvFiles(unittest.TestCase):
         self.assertIn(1, result)
         self.assertEqual(len(_blocks_of(result[1])), 4)
         self.assertAlmostEqual(_weight_of(result[1]), 7.0)
+
+
+def _ids(blocks):
+    return sorted(b for b, _ in blocks)
+
+
+def _check_result(test_case, blocks, result, capacity, max_blocks=None):
+    """Every input block is either in exactly one container or unplaced."""
+    placed = [b for c in result.containers for b in c]
+    test_case.assertEqual(sorted(placed + result.unplaced), sorted(blocks))
+    for c in result.containers:
+        test_case.assertLessEqual(AllocationResult.total(c), capacity + 1e-9)
+        test_case.assertGreater(len(c), 0)
+        if max_blocks is not None:
+            test_case.assertLessEqual(len(c), max_blocks)
+
+
+class TestAllocate(unittest.TestCase):
+    def test_reports_unplaced_blocks(self):
+        blocks = [("a", 8.0), ("b", 7.0), ("c", 6.0)]
+        result = allocate(blocks, 10.0, 2)
+        _check_result(self, blocks, result, 10.0)
+        self.assertEqual(len(result.containers), 2)
+        self.assertEqual(result.unplaced, [("c", 6.0)])
+        self.assertAlmostEqual(result.unplaced_weight, 6.0)
+
+    def test_block_heavier_than_limit_is_unplaced_not_an_empty_container(self):
+        result = allocate([("big", 50.0), ("ok", 5.0)], 10.0, 4)
+        self.assertEqual(result.containers, [[("ok", 5.0)]])
+        self.assertEqual(result.unplaced, [("big", 50.0)])
+
+    def test_nothing_fits(self):
+        result = allocate([("big", 50.0)], 10.0, 3)
+        self.assertEqual(result.containers, [])
+        self.assertEqual(result.unplaced, [("big", 50.0)])
+        self.assertEqual(result.utilisation, 0.0)
+
+    def test_summary_figures(self):
+        blocks = [("a", 6.0), ("b", 4.0), ("c", 5.0), ("d", 9.0)]
+        result = allocate(blocks, 10.0, 2)
+        # Container 1 takes 6 + 4, container 2 the 9; the 5 doesn't fit anywhere.
+        self.assertEqual(result.placed_count, 3)
+        self.assertAlmostEqual(result.placed_weight, 19.0)
+        self.assertEqual(result.container_totals, [10.0, 9.0])
+        self.assertAlmostEqual(result.utilisation, 19.0 / 20.0)
+        self.assertEqual(result.unplaced, [("c", 5.0)])
+
+    def test_blocks_listed_in_file_order(self):
+        blocks = [("z", 1.0), ("y", 2.0), ("x", 3.0), ("w", 4.0)]
+        result = allocate(blocks, 100.0, 1)
+        self.assertEqual([b for b, _ in result.containers[0]], ["z", "y", "x", "w"])
+
+    def test_duplicate_block_numbers_are_kept_separate(self):
+        blocks = [("1", 5.0), ("1", 5.0), ("2", 4.0)]
+        result = allocate(blocks, 10.0, 2)
+        _check_result(self, blocks, result, 10.0)
+        self.assertEqual(result.placed_count, 3)
+
+    def test_exact_flag_and_note_when_too_large_for_dp(self):
+        blocks = [("a", 6.0), ("b", 5.0), ("c", 5.0)]
+        with mock.patch.object(logic, "_DP_WORK_LIMIT", 1):
+            result = allocate(blocks, 10.0, 1)
+        self.assertFalse(result.exact)
+        self.assertTrue(any("too large" in n for n in result.notes))
+        self.assertTrue(allocate(blocks, 10.0, 1).exact)
+
+    def test_time_limit_uses_greedy_on_the_whole_pool(self):
+        # 30 blocks; after the time limit the greedy fallback must still be
+        # able to use the heaviest blocks, which sit at the end of the list.
+        blocks = [(f"s{i}", 1.0) for i in range(25)] + [(f"h{i}", 9.0) for i in range(5)]
+        result = allocate(blocks, 10.0, 3, time_limit=-1)
+        self.assertFalse(result.exact)
+        self.assertTrue(any("seconds" in n for n in result.notes))
+        for c in result.containers:
+            self.assertTrue(any(b.startswith("h") for b, _ in c), c)
+        self.assertEqual(result.container_totals, [10.0, 10.0, 10.0])
+        _check_result(self, blocks, result, 10.0)
+
+    def test_invalid_arguments(self):
+        for kwargs in ({"capacity": 0, "count": 1}, {"capacity": 5, "count": 0}):
+            with self.subTest(**kwargs), self.assertRaises(ValueError):
+                allocate([("a", 1.0)], **kwargs)
+        with self.assertRaises(ValueError):
+            allocate([("a", 1.0)], 5, 1, max_blocks=0)
+
+    def test_container_map_matches_result(self):
+        blocks = [("a", 6.0), ("b", 4.0), ("c", 5.0)]
+        result = allocate(blocks, 10.0, 2)
+        mapping = result.to_container_map()
+        self.assertEqual(sorted(mapping), [1, 2])
+        self.assertEqual(mapping[1]["blocks"], ["a", "b"])
+        self.assertAlmostEqual(mapping[1]["total_weight"], 10.0)
+
+
+class TestBalancing(unittest.TestCase):
+    def test_spreads_load_and_ships_the_same_blocks(self):
+        blocks = load_blocks(_RESOURCES / "example_blocks_2.csv")
+        filled = allocate(blocks, 45.0, 4, max_blocks=3)
+        balanced = allocate(blocks, 45.0, 4, max_blocks=3, balance=True)
+        _check_result(self, blocks, balanced, 45.0, max_blocks=3)
+        self.assertTrue(balanced.balanced)
+        self.assertEqual(_ids(balanced.unplaced), _ids(filled.unplaced))
+        self.assertAlmostEqual(balanced.placed_weight, filled.placed_weight)
+
+        def spread(r):
+            return max(r.container_totals) - min(r.container_totals)
+
+        self.assertLess(spread(balanced), spread(filled))
+
+    def test_uses_all_requested_containers(self):
+        # Everything fits in one container, but four were asked for.
+        blocks = [("a", 3.0), ("b", 3.0), ("c", 3.0), ("d", 3.0)]
+        result = allocate(blocks, 100.0, 4, balance=True)
+        self.assertEqual(result.container_totals, [3.0, 3.0, 3.0, 3.0])
+
+    def test_respects_limits(self):
+        boxes = [[("a", 9.0), ("b", 1.0)], [("c", 1.0)]]
+        out = balance_containers(boxes, 10.0, max_blocks=2)
+        for c in out:
+            self.assertLessEqual(AllocationResult.total(c), 10.0)
+            self.assertLessEqual(len(c), 2)
+        # Moving the 1 across gives 9 and 2; nothing else fits under the limits.
+        self.assertEqual(sorted(AllocationResult.total(c) for c in out), [2.0, 9.0])
+
+    def test_swaps_when_a_move_is_not_enough(self):
+        # Moving any single block makes things worse; swapping 6 and 4 evens it out.
+        boxes = [[("a", 6.0), ("b", 6.0)], [("c", 4.0), ("d", 4.0)]]
+        out = balance_containers(boxes, 12.0, max_blocks=2)
+        self.assertEqual(sorted(AllocationResult.total(c) for c in out), [10.0, 10.0])
+
+    def test_does_not_modify_input(self):
+        boxes = [[("a", 9.0)], []]
+        balance_containers(boxes, 10.0)
+        self.assertEqual(boxes, [[("a", 9.0)], []])
 
 
 if __name__ == "__main__":

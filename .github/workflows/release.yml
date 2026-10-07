@@ -1,0 +1,61 @@
+name: Release
+
+# Push a tag such as v0.2.0 to build the Windows executable and attach it to
+# a GitHub release. The tag must match allocator.__version__.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  windows-exe:
+    name: Build Windows executable
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements*.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+
+      - name: Check the tag matches the app version
+        shell: bash
+        run: |
+          version=$(python -c "import allocator; print(allocator.__version__)")
+          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match allocator.__version__ ($version)"
+            exit 1
+          fi
+
+      - name: Run tests
+        run: python -m unittest discover -s test
+
+      - name: Build executable
+        run: >
+          pyinstaller --onefile --windowed
+          --name GraniteBlockAllocator
+          --icon assets/icon.ico
+          --add-data "assets/icon.png:assets"
+          main.py
+
+      - name: Publish release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          exe=dist/GraniteBlockAllocator.exe
+          if gh release view "$GITHUB_REF_NAME" > /dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" "$exe" --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" "$exe" --title "$GITHUB_REF_NAME" --generate-notes
+          fi
